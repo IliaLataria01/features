@@ -1,9 +1,11 @@
 package computerdatabase
 
+
 import io.gatling.core.Predef._
 import io.gatling.http.Predef._
-
+import utils.features.FileLogger
 import java.util.concurrent.ThreadLocalRandom
+import java.io.{File, FileWriter, BufferedWriter}
 
 /**
  * This sample is based on our official tutorials:
@@ -15,6 +17,10 @@ class ComputerDatabaseSimulation extends Simulation {
 
   val feeder = csv("search.csv").random
 
+
+  val fileLogger = new FileLogger()
+
+
   val search =
     exec(
       http("Home")
@@ -24,18 +30,24 @@ class ComputerDatabaseSimulation extends Simulation {
       .feed(feeder)
       .exec(
         http("Search")
-          .get("/computers?f=#{searchCriterion}")
+          .get("/computers?f=${searchCriterion}4")
           .check(
-            css("a:contains('#{searchComputerName}')", "href").saveAs("computerUrl")
+            status.saveAs("status"),
+            css("a:contains('${searchComputerName}')", "href").saveAs("computerUrl")
           )
       )
       .pause(1)
       .exec(
         http("Select")
-          .get("#{computerUrl}")
+          .get("${computerUrl}2")
           .check(status.is(200))
       )
       .pause(1)
+      .exec(session => {
+        fileLogger.logErrorToFile(session)
+        session
+      })
+
 
   // repeat is a loop resolved at RUNTIME
   val browse =
@@ -43,7 +55,13 @@ class ComputerDatabaseSimulation extends Simulation {
     repeat(4, "i") {
       exec(
         http("Page #{i}").get("/computers?p=#{i}")
-      ).pause(1)
+      )
+        .exec(session => {
+          fileLogger.logErrorToFile(session)
+          session
+        })
+        .pause(1)
+
     }
 
   // Note we should be using a feeder here
@@ -60,7 +78,7 @@ class ComputerDatabaseSimulation extends Simulation {
         .pause(1)
         .exec(
           http("Post")
-            .post("/computers")
+            .post("/computer")
             .formParam("name", "Beautiful Computer")
             .formParam("introduced", "2012-05-30")
             .formParam("discontinued", "")
@@ -73,10 +91,18 @@ class ComputerDatabaseSimulation extends Simulation {
                   200 + ThreadLocalRandom.current().nextInt(2)
               }
             )
+
         )
+        .exec()
+        .exec(session => {
+          fileLogger.logErrorToFile(session)
+          session
+        })
+
     }
     // if the chain didn't finally succeed, have the user exit the whole scenario
     .exitHereIfFailed
+
 
   val httpProtocol =
     http.baseUrl("https://computer-database.gatling.io")
@@ -94,4 +120,7 @@ class ComputerDatabaseSimulation extends Simulation {
     users.inject(rampUsers(10).during(10)),
     admins.inject(rampUsers(2).during(10))
   ).protocols(httpProtocol)
+    .assertions(
+      global.failedRequests.count.is(0),
+    )
 }
